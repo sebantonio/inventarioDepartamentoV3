@@ -484,42 +484,6 @@ function doGet(e) {
       return json({ ok: true, aulas, cats, ciclos, user });
     }
 
-    const items      = rowsToObjects(ss.getSheetByName(SHEET_INVENTARIO), HEADERS_INV);
-    const profesores = rowsToObjects(ss.getSheetByName(SHEET_PROFESORES), HEADERS_PROF)
-      .filter(p => String(p.nombre || '').trim() !== '' && String(p.nombre || '').trim().toLowerCase() !== 'departamento');
-    const prestamos  = rowsToObjects(ss.getSheetByName(SHEET_PRESTAMOS), HEADERS_PRES);
-    let aulas        = rowsToObjects(ss.getSheetByName(SHEET_AULAS), HEADERS_AULAS);
-    let cats         = rowsToObjects(ss.getSheetByName(SHEET_CATS), HEADERS_CATS);
-    let ciclosRows   = rowsToObjects(ss.getSheetByName(SHEET_CICLOS), HEADERS_CICLOS);
-
-    // Si no hay aulas configuradas, devolver las por defecto
-    if (!aulas.length) {
-      aulas = AULAS_DEFAULT.map(a => ({id:a[0],name:a[1],icon:a[2],desc:a[3],th:a[4],orden:a[5]}));
-    }
-    aulas.sort((a,b)=>(Number(a.orden)||0)-(Number(b.orden)||0));
-
-    // Si no hay categorías configuradas, devolver las por defecto
-    if (!cats.length) {
-      cats = CATS_DEFAULT.map(c => ({name:c[0],c:c[1],bg:c[2],i:c[3],orden:c[4]}));
-    }
-    cats.sort((a,b)=>(Number(a.orden)||0)-(Number(b.orden)||0));
-
-    // Reconstruir ciclos desde filas planas (agrupadas por cicloId)
-    let ciclos = [];
-    if (ciclosRows.length) {
-      ciclosRows.sort((a,b)=>(Number(a.cicloOrden)||0)-(Number(b.cicloOrden)||0)||(Number(a.modOrden)||0)-(Number(b.modOrden)||0));
-      const cicloMap = {};
-      const cicloOrder = [];
-      ciclosRows.forEach(r => {
-        if (!cicloMap[r.cicloId]) {
-          cicloMap[r.cicloId] = {id:r.cicloId,name:r.cicloNombre,nivel:r.nivel,icon:r.icon,th:r.th,desc:r.desc,modulos:[]};
-          cicloOrder.push(r.cicloId);
-        }
-        if (r.modCod) cicloMap[r.cicloId].modulos.push({cod:String(r.modCod),name:r.modNombre,horas:Number(r.modHoras)||0});
-      });
-      ciclos = cicloOrder.map(id => cicloMap[id]);
-    }
-
     if (action === 'getItemLog') {
       try {
         const itemId = e.parameter.itemId;
@@ -555,13 +519,60 @@ function doGet(e) {
       }
     }
 
-    return json({ ok: true, items, profesores, prestamos, aulas, cats, ciclos, user });
+    // ── action=list: datos pesados con caché 3 min ────────────────
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'list_v1';
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      try {
+        const data = JSON.parse(cached);
+        return json({ ok: true, ...data, user });
+      } catch(e) {}
+    }
+
+    // Batch: obtener todas las hojas de una vez para minimizar llamadas a Sheets
+    const sheetNames = [SHEET_INVENTARIO, SHEET_PROFESORES, SHEET_PRESTAMOS, SHEET_AULAS, SHEET_CATS, SHEET_CICLOS];
+    const sheets = sheetNames.map(n => ss.getSheetByName(n));
+    const [shInv, shProf, shPres, shAulas, shCats, shCiclos] = sheets;
+
+    const items     = rowsToObjects(shInv, HEADERS_INV);
+    const profesores = rowsToObjects(shProf, HEADERS_PROF)
+      .filter(p => String(p.nombre || '').trim() !== '' && String(p.nombre || '').trim().toLowerCase() !== 'departamento');
+    const prestamos = rowsToObjects(shPres, HEADERS_PRES);
+    let aulas       = rowsToObjects(shAulas, HEADERS_AULAS);
+    let cats        = rowsToObjects(shCats, HEADERS_CATS);
+    let ciclosRows  = rowsToObjects(shCiclos, HEADERS_CICLOS);
+
+    if (!aulas.length) aulas = AULAS_DEFAULT.map(a => ({id:a[0],name:a[1],icon:a[2],desc:a[3],th:a[4],orden:a[5]}));
+    aulas.sort((a,b)=>(Number(a.orden)||0)-(Number(b.orden)||0));
+    if (!cats.length) cats = CATS_DEFAULT.map(c => ({name:c[0],c:c[1],bg:c[2],i:c[3],orden:c[4]}));
+    cats.sort((a,b)=>(Number(a.orden)||0)-(Number(b.orden)||0));
+
+    let ciclos = [];
+    if (ciclosRows.length) {
+      ciclosRows.sort((a,b)=>(Number(a.cicloOrden)||0)-(Number(b.cicloOrden)||0)||(Number(a.modOrden)||0)-(Number(b.modOrden)||0));
+      const cicloMap = {}, cicloOrder = [];
+      ciclosRows.forEach(r => {
+        if (!cicloMap[r.cicloId]) { cicloMap[r.cicloId]={id:r.cicloId,name:r.cicloNombre,nivel:r.nivel,icon:r.icon,th:r.th,desc:r.desc,modulos:[]}; cicloOrder.push(r.cicloId); }
+        if (r.modCod) cicloMap[r.cicloId].modulos.push({cod:String(r.modCod),name:r.modNombre,horas:Number(r.modHoras)||0});
+      });
+      ciclos = cicloOrder.map(id => cicloMap[id]);
+    }
+
+    const payload = { items, profesores, prestamos, aulas, cats, ciclos };
+    try { cache.put(cacheKey, JSON.stringify(payload), 180); } catch(e) {}
+
+    return json({ ok: true, ...payload, user });
   } catch (err) {
     return json({ ok: false, error: err.toString() });
   }
 }
 
 // ─── POST ────────────────────────────────────────────────────────
+function invalidateCache() {
+  try { CacheService.getScriptCache().remove('list_v1'); } catch(e) {}
+}
+
 function doPost(e) {
   try {
     const body   = JSON.parse(e.postData.contents);
@@ -611,6 +622,7 @@ function doPost(e) {
       ensureItemCode(it);
       prepareMaintenanceRequester(it, {}, user);
       sheet.appendRow(HEADERS_INV.map(h => it[h] != null ? it[h] : ''));
+      invalidateCache();
       auditLog(ss, user, 'add', it.id, `Añadido item: ${it.item || ''} (${it.ref || 'sin ref'})`);
       notifyMaintenanceChange(ss, user, it, {});
       notifyStockAlert(ss, it, {}, user);
@@ -627,6 +639,7 @@ function doPost(e) {
       const oldItem = invRowToObject(old);
       prepareMaintenanceRequester(it, oldItem, user);
       sheet.getRange(r, 1, 1, HEADERS_INV.length).setValues([HEADERS_INV.map(h => it[h] != null ? it[h] : '')]);
+      invalidateCache();
       auditLog(ss, user, 'update', it.id, `Actualizado item: ${it.item || old[4] || ''}; qty ${old[5]} -> ${it.qty}; estado ${old[9]} -> ${it.est}`);
       notifyMaintenanceChange(ss, user, it, oldItem);
       notifyStockAlert(ss, it, oldItem, user);
@@ -639,6 +652,7 @@ function doPost(e) {
       if (r < 0) return json({ ok: false, error: 'No encontrado' });
       const old = sheet.getRange(r, 1, 1, HEADERS_INV.length).getValues()[0];
       sheet.deleteRow(r);
+      invalidateCache();
       auditLog(ss, user, 'delete', body.id, `Eliminado item: ${old[4] || ''} (${old[1] || 'sin ref'})`);
       return json({ ok: true });
     }
@@ -665,6 +679,7 @@ function doPost(e) {
       // Inserción en bloque (mucho más rápido que appendRow uno a uno)
       const startRow = sheet.getLastRow() + 1;
       sheet.getRange(startRow, 1, rows.length, HEADERS_INV.length).setValues(rows);
+      invalidateCache();
       auditLog(ss, user, 'bulkImport', '', `Importados ${rows.length} items`);
       
       return json({ ok: true, imported: rows.length, items: newItems });
@@ -738,7 +753,7 @@ function doPost(e) {
         restored.profesores = profs.length;
       }
 
-      auditLog(ss, user, 'restoreBackup', '', `Backup restaurado: ${Object.keys(restored).map(k => k + '=' + restored[k]).join(', ')}`);
+      invalidateCache(); auditLog(ss, user, 'restoreBackup', '', `Backup restaurado: ${Object.keys(restored).map(k => k + '=' + restored[k]).join(', ')}`);
       return json({ ok: true, restored });
     }
 
@@ -882,7 +897,7 @@ function doPost(e) {
       const pr = body.profesor;
       pr.id = nextId(sheet);
       sheet.appendRow(HEADERS_PROF.map(h => pr[h] != null ? pr[h] : ''));
-      auditLog(ss, user, 'profAdd', pr.id, `Añadido profesor: ${pr.nombre || ''}`);
+      invalidateCache(); auditLog(ss, user, 'profAdd', pr.id, `Añadido profesor: ${pr.nombre || ''}`);
       return json({ ok: true, profesor: pr });
     }
     if (action === 'profUpdate') {
@@ -891,7 +906,7 @@ function doPost(e) {
       const r = findRowById(sheet, pr.id);
       if (r < 0) return json({ ok: false, error: 'No encontrado' });
       sheet.getRange(r, 1, 1, HEADERS_PROF.length).setValues([HEADERS_PROF.map(h => pr[h] != null ? pr[h] : '')]);
-      auditLog(ss, user, 'profUpdate', pr.id, `Actualizado profesor: ${pr.nombre || ''}`);
+      invalidateCache(); auditLog(ss, user, 'profUpdate', pr.id, `Actualizado profesor: ${pr.nombre || ''}`);
       return json({ ok: true, profesor: pr });
     }
     if (action === 'profDelete') {
@@ -900,7 +915,7 @@ function doPost(e) {
       if (r < 0) return json({ ok: false, error: 'No encontrado' });
       const old = sheet.getRange(r, 1, 1, HEADERS_PROF.length).getValues()[0];
       sheet.deleteRow(r);
-      auditLog(ss, user, 'profDelete', body.id, `Eliminado profesor: ${old[1] || ''}`);
+      invalidateCache(); auditLog(ss, user, 'profDelete', body.id, `Eliminado profesor: ${old[1] || ''}`);
       return json({ ok: true });
     }
 
@@ -916,7 +931,7 @@ function doPost(e) {
       aulas.forEach((a, i) => {
         sheet.appendRow([a.id, a.name, a.icon, a.desc, a.th, i+1]);
       });
-      auditLog(ss, user, 'aulasSync', '', `Sincronizadas ${aulas.length} aulas`);
+      invalidateCache(); auditLog(ss, user, 'aulasSync', '', `Sincronizadas ${aulas.length} aulas`);
       return json({ ok: true, aulas });
     }
 
@@ -931,7 +946,7 @@ function doPost(e) {
       cats.forEach(c => {
         sheet.appendRow([c.name, c.c, c.bg, c.i, c.orden]);
       });
-      auditLog(ss, user, 'catsSync', '', `Sincronizadas ${cats.length} categorias`);
+      invalidateCache(); auditLog(ss, user, 'catsSync', '', `Sincronizadas ${cats.length} categorias`);
       return json({ ok: true, cats });
     }
 
@@ -948,7 +963,7 @@ function doPost(e) {
           sheet.appendRow([c.id, c.name, c.nivel, c.icon, c.th, c.desc, String(m.cod), m.name, Number(m.horas)||0, ci+1, mi+1]);
         });
       });
-      auditLog(ss, user, 'ciclosSync', '', `Sincronizados ${ciclos.length} ciclos`);
+      invalidateCache(); auditLog(ss, user, 'ciclosSync', '', `Sincronizados ${ciclos.length} ciclos`);
       return json({ ok: true, ciclos });
     }
 
@@ -975,7 +990,7 @@ function doPost(e) {
       pres.cantidadDevuelta = 0;
       pres.estado = 'Activo';
       presSheet.appendRow(HEADERS_PRES.map(h => pres[h] != null ? pres[h] : ''));
-      auditLog(ss, user, 'prestar', pres.itemId, `Prestamo ${pres.id}: ${pres.cantidad} ud. de ${pres.itemNombre || ''} a ${pres.profesorNombre || ''}`);
+      invalidateCache(); auditLog(ss, user, 'prestar', pres.itemId, `Prestamo ${pres.id}: ${pres.cantidad} ud. de ${pres.itemNombre || ''} a ${pres.profesorNombre || ''}`);
 
       // ── Notificación email al responsable del módulo ────────────
       if (pres.moduloCod) {
@@ -1070,7 +1085,7 @@ function doPost(e) {
       } else {
         presSheet.getRange(rPres, 14).setValue('Parcial');
       }
-      auditLog(ss, user, 'devolver', itemId, `Devolucion prestamo ${presId}: ${cantDev} ud.; estado ${estadoFinal}`);
+      invalidateCache(); auditLog(ss, user, 'devolver', itemId, `Devolucion prestamo ${presId}: ${cantDev} ud.; estado ${estadoFinal}`);
 
       // ── Notificación email devolución ───────────────────────────
       try {
