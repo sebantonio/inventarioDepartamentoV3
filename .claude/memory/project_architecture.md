@@ -1,6 +1,6 @@
 ---
 name: Arquitectura técnica
-description: Stack, estructura de archivos JS, patrones de código y restricciones conocidas
+description: Stack, estructura de archivos JS, patrones de código y restricciones conocidas (actualizado 2026-05-16)
 type: project
 originSessionId: 97fd2f19-db29-4e74-997b-cfdd7054b186
 ---
@@ -105,3 +105,17 @@ originSessionId: 97fd2f19-db29-4e74-997b-cfdd7054b186
 - Tabla scroll: `.tw-scroll{overflow-x:auto}` + `table{min-width:1400px;width:max-content}`
 - NO `position:sticky` en columnas (incompatible con overflow en padres)
 - NO gradiente `::after` en `.tw-scroll` (ocultaba botón eliminar)
+
+**Carga en dos fases (implementado 2026-05-16):**
+- `action=meta` (doGet GAS): devuelve aulas, cats, ciclos. Sin caché; rápida (~1s).
+- `action=list` (doGet GAS): devuelve items, prestamos, profesores. Con `CacheService` key `list_v2`, TTL 180s. Respuesta comprimida: `itemsH` + `itemsC`.
+- `itemsLoaded` en `js/state.js` — false al iniciar, true tras parsear `action=list`.
+- `renderHome()` se llama dos veces: al terminar meta (skeleton) y al terminar list (datos reales).
+- `invalidateCache()` en GAS: `CacheService.getScriptCache().remove('list_v2')` — llamado al inicio de toda acción de escritura.
+
+**Proyecto paralelo SQLInventarioElecFP (2026-05-16):**
+- Repo separado: `D:\...\Github\SQLInventarioElecFP` y Cloudflare Pages aparte.
+- Backend: Cloudflare Workers (`functions/api/`) en lugar de GAS.
+- BD: Cloudflare D1 (SQLite) en lugar de Google Sheets.
+- Mismo frontend JS (copiado), `API_URL` eliminada — Workers en mismo origen (`/api/*`).
+- **No tocar este repo desde ese proyecto ni viceversa.**

@@ -285,10 +285,45 @@ Dropdown en topbar, visible solo para Jefes/Admin (`can('config.manage')`). Impl
 - Foto principal por ítem: miniatura local en campo `foto`, visible en tarjetas.
 - Exportación con modal de opciones: CSV filtrado, CSV completo y backup JSON completo.
 
+## Carga en dos fases + caché GAS (implementado 2026-05-16)
+`loadData()` en `auth.js` hace dos peticiones separadas:
+1. **`apiGet('meta')`** — devuelve solo aulas, cats y ciclos. Sin caché, respuesta rápida. Home se muestra inmediatamente con skeleton en contadores.
+2. **`apiGet('list')`** en background — devuelve items, prestamos y profesores. Con `CacheService` (key `list_v2`, 180s TTL). Respuesta comprimida: `itemsH` + `itemsC` (array de arrays, ~40% más pequeño).
+
+`itemsLoaded` en `state.js` — false al iniciar, true tras parsear list. `renderHome()` se llama dos veces: la primera muestra skeletons, la segunda los contadores reales.
+
+**Skeleton animations:** mientras `itemsLoaded === false`, los contadores del home muestran divs `.skel.scard-num` y las tarjetas de aulas/cats/ciclos muestran `.skel.skel-count`. CSS: `@keyframes skel-shine` con gradiente `background-size:200%` animado.
+
+**`invalidateCache()` en GAS:** `CacheService.getScriptCache().remove('list_v2')` — llamado AL INICIO de todas las acciones de escritura: `add`, `update`, `delete`, `bulkImport`, `restoreBackup`, `prestar`, `devolver`, `profAdd`, `profUpdate`, `profDelete`, `aulasSync`, `catsSync`, `ciclosSync`, `updateProfile`, `changePassword`.
+
+**Acción `meta` en GAS (doGet):** nueva acción que devuelve aulas, cats y ciclos sin leer ítems. Implementada junto con la caché de `list`.
+
+## Enlace Google Sheet en menú ⚙️ Departamento (implementado 2026-05-16)
+Enlace directo a la hoja de cálculo añadido al final del menú Departamento:
+```html
+<a class="dept-menu-item" href="https://docs.google.com/spreadsheets/d/1VNk8sXg4Gjudjn6hHWTUxlWXIvJUFCHBwLkAZ1FC13Y/edit?gid=919419425#gid=919419425" target="_blank" rel="noopener" onclick="closeDeptMenu()">📊 Ver hoja de cálculo</a>
+```
+`.dept-menu-item` tiene `text-decoration:none` y `width:100%;box-sizing:border-box` para que los `<a>` se vean igual que los `<button>`.
+
+## Bug: localeCompare en campos null (corregido 2026-05-16)
+`TypeError: a.item.localeCompare is not a function` — algunos ítems tienen campo `item` null/vacío.
+Fix en `inventory.js:251` y `prestamos.js:272`: usar `String(a.item||'').localeCompare(String(b.item||''))`.
+**Regla general:** siempre `String(x||'')` antes de `.localeCompare()` o `.toLowerCase()` sobre datos del inventario.
+
+## Proyecto paralelo SQLInventarioElecFP (creado 2026-05-16)
+Nuevo repo separado en `D:\...\Github\SQLInventarioElecFP` — migración del backend a Cloudflare Workers + D1 (SQLite). **No tocar este repo desde ese proyecto.**
+- Frontend copiado de este proyecto, `API_URL` eliminada (Workers en mismo origen `/api/*`)
+- Workers en `functions/api/`: `_middleware.js`, `auth.js`, `meta.js`, `list.js`, `item.js`, `prestar.js`, `config.js`, `profesores.js`, `perfil.js`, `usuarios.js`
+- Schema D1 en `migrations/0001_schema.sql` (11 tablas)
+- README y MIGRACION_CLOUDFLARE_D1.md detallados en ese repo
+- Cloudflare Pages separada (pendiente crear y vincular D1)
+
 ## appscript.txt
 Contiene el código completo del backend GAS. Para actualizar el backend hay que copiar el contenido en el editor de Google Apps Script y redesplegar como aplicación web.
 
 Acciones GAS relevantes:
+- `action=meta` — devuelve aulas, cats, ciclos (carga rápida, sin caché)
+- `action=list` — devuelve items+prestamos+profesores con caché 180s (key `list_v2`), formato comprimido `itemsH`+`itemsC`
 - `action=prestar` — registra préstamo + envía email al responsable del módulo + CC todos los Jefes
 - `action=devolver` — registra devolución + envía email de notificación + CC todos los Jefes
 - `action=ciclosSync` — sync completo hoja Ciclos (una fila por módulo: cicloId|cicloNombre|nivel|icon|th|desc|modCod|modNombre|modHoras|cicloOrden|modOrden)

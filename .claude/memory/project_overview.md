@@ -1,6 +1,6 @@
 ---
 name: Resumen del proyecto
-description: Qué es la app, para qué sirve y estado actual de funcionalidades (actualizado 2026-05-06)
+description: Qué es la app, para qué sirve y estado actual de funcionalidades (actualizado 2026-05-16)
 type: project
 originSessionId: 97fd2f19-db29-4e74-997b-cfdd7054b186
 ---
@@ -58,6 +58,19 @@ App web de inventario para el departamento del IES El Bosco. Permite gestionar �
 - **Pedido (🛒)**: email al Jefe Departamento al añadir ítem a lista de compra
 - Todas no fatales (try-catch silencioso, el registro se guarda siempre)
 - Debug de email: `res.emailDebug` logueado en consola del navegador tras cada préstamo
+
+**Funcionalidades implementadas (2026-05-16):**
+- **Carga en dos fases**: `loadData()` hace primero `apiGet('meta')` (aulas, cats, ciclos → ~1s) y muestra el home inmediatamente. Luego `apiGet('list')` en background (items, prestamos, profesores). `itemsLoaded` booleano en state.js indica si los datos de inventario ya cargaron.
+- **Skeleton animations**: mientras `itemsLoaded === false`, los contadores del home muestran `.skel.scard-num` y las tarjetas de aulas/cats/ciclos muestran `.skel.skel-count` animados. Al cargar, `renderHome()` se refresca con los datos reales. CSS: keyframe `skel-shine` con gradiente animado.
+- **Caché GAS (CacheService)**: `action=list` guarda respuesta en `CacheService.getScriptCache()` con key `list_v2`, TTL 180s. `invalidateCache()` elimina la clave antes de escribir en cualquier acción (add, update, delete, prestar, devolver, ciclosSync, aulasSync, catsSync, etc.).
+- **Compresión JSON**: items se envían como `itemsH` (array de headers) + `itemsC` (array de arrays) reduciendo payload ~40%. Frontend los descomprime: `items = res.itemsC.map(row => Object.fromEntries(res.itemsH.map((h,i) => [h, row[i]])))`.
+- **Acción `meta` en GAS**: nueva acción doGet que devuelve solo aulas, cats y ciclos sin autenticación de carga pesada. Respuesta en <1s.
+- **Enlace Google Sheet en menú Departamento**: `<a>` con URL de la hoja de cálculo, abre en nueva pestaña, llama `closeDeptMenu()`.
+- **Nuevo proyecto SQLInventarioElecFP**: repo separado en `D:\...\Github\SQLInventarioElecFP` migrando backend de GAS+Sheets a Cloudflare Workers + D1 (SQLite). No toca este repo. README detallado en el nuevo proyecto.
+
+**Problemas resueltos (2026-05-16):**
+- `TypeError: a.item.localeCompare is not a function` — items con campo `item` null. Fix: `String(a.item||'').localeCompare(String(b.item||''))` en `inventory.js:251` y `prestamos.js:272`.
+- GAS URL desincronizada tras clonar repo de otro proyecto — se actualizó `API_URL` en `js/state.js` al nuevo exec.
 
 **Why:** El centro necesita controlar el material técnico del departamento de FP.
 
