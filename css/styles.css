@@ -66,7 +66,7 @@ body{
 .dept-menu{position:absolute;top:calc(100% + 8px);right:0;background:var(--white);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.14);padding:8px;min-width:270px;z-index:999;display:none;flex-direction:column;gap:2px}
 .dept-menu.open{display:flex}
 .dept-menu-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:6px 12px 4px}
-.dept-menu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border:none;background:none;border-radius:8px;cursor:pointer;font-family:var(--font);font-size:13px;font-weight:600;color:var(--text);text-align:left;transition:background .12s}
+.dept-menu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border:none;background:none;border-radius:8px;cursor:pointer;font-family:var(--font);font-size:13px;font-weight:600;color:var(--text);text-align:left;transition:background .12s;text-decoration:none;width:100%;box-sizing:border-box}
 .dept-menu-item:hover{background:var(--surface2)}
 .dept-menu-sep{height:1px;background:var(--border);margin:4px 8px}
 
