@@ -269,7 +269,7 @@ function openPrestar(itemId){
       AULAS.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');
     document.getElementById('pres_filtQ').value = '';
     // Lista de ítems (todos con stock, ordenados)
-    const disponibles = items.filter(x=>Number(x.qty)>0).sort((a,b)=>a.item.localeCompare(b.item));
+    const disponibles = items.filter(x=>Number(x.qty)>0).sort((a,b)=>String(a.item||'').localeCompare(String(b.item||'')));
     _buildPresItemOptions(disponibles);
     document.getElementById('prestarItemInfo').innerHTML = '<div style="color:var(--muted);font-size:13px">Selecciona un ítem para ver su información</div>';
     document.getElementById('pres_aulaDest').innerHTML = '<option value="">— Sin especificar —</option>';

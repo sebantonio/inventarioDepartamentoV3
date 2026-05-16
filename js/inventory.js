@@ -248,7 +248,7 @@ function delPickerFilter(){
   const q = document.getElementById('delPickerSearch').value.toLowerCase();
   const src = (cf ? getBase() : items).filter(x=>
     !q || x.item.toLowerCase().includes(q) || (x.ref||'').toLowerCase().includes(q)
-  ).sort((a,b)=>a.item.localeCompare(b.item));
+  ).sort((a,b)=>String(a.item||'').localeCompare(String(b.item||'')));
   const list = document.getElementById('delPickerList');
   if(!src.length){
     list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:12px">Sin resultados</div>';
